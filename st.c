@@ -290,6 +290,8 @@ const struct flt pww_[] = {
 double flt2float(struct flt flt)
 {
 	char a = flt.exp;
+	if (a > 62) a = 62;    // 1LL<<a is UB for |a| >= 63
+	if (a < -62) a = -62;
 	int b = flt.m1;
 	int c = flt.m2;
 	int s = 1 - 2*(b >> 17);
@@ -427,6 +429,7 @@ void incr(int n, enum dir dir)
 
 void dchar(char c)
 {
+	if (c < 32 || c > 126) return;
 	bool vis = false;
 	unsigned char *ch = font[c-32];
 	unsigned char ij;
@@ -453,8 +456,10 @@ void chars(const char *s)
 	while (*s) dchar(*s++);
 }
 
-int inscr(int a)
+int inscr(double da)
 {
+	if (!isfinite(da) || da > 383.0 || da < -384.0) return 0;
+	int a = (int)da;
 	a = 383 - a;
 	if (a < 0) return 0;
 	a -= 768;
@@ -536,11 +541,11 @@ void contrl(const SDL_Event *e)
 				goflg = crflg = false;
 				break;
 			case SDLK_7: case SDLK_DOWN:
-				++scale;
+				if (scale < 30) ++scale;
 				dspsca();
 				break;
 			case SDLK_8: case SDLK_UP:
-				--scale;
+				if (scale > -30) --scale;
 				dspsca();
 				break;
 			}
@@ -618,17 +623,14 @@ void invert(int p)
 void absv(int p)
 {
 	absx = absy = 0;
-
 	int absi = p;
-	while (absi) {
+	for (int depth = 0; absi && (unsigned)absi < (unsigned)nplan && depth < nplan; ++depth) {
 		invert(absi);
 		absx -= px[absi];
 		absy -= py[absi];
-
 		invert(absi);
 		absx += px[absi];
 		absy += py[absi];
-
 		absi = ppar[absi];
 	}
 }
@@ -636,16 +638,14 @@ void absv(int p)
 /* Get planet absolute position */
 void absxy(int p)
 {
-	// get distance from planet to sun
 	int absi = p;
 	absx = 0;
 	absy = 0;
-	while (absi) {
+	for (int depth = 0; absi && (unsigned)absi < (unsigned)nplan && depth < nplan; ++depth) {
 		absx += px[absi];
 		absy += py[absi];
 		absi = ppar[absi];
 	}
-	return;
 }
 
 /* Set ship absolute position */
@@ -776,9 +776,9 @@ void drcirc(int p)
 
 	int narcs;
 	dtmp1 = dtmp1 * M_PI/10;
-	if (dtmp1 > 400) narcs = 400;
+	if (!isfinite(dtmp1) || dtmp1 > 400) narcs = 400;
 	else {
-		narcs = dtmp1;
+		narcs = dtmp1 > 0.0 ? (int)dtmp1 : 0;
 		if (narcs < 20) narcs = 0;
 		narcs += 20;
 		dtmp1 = narcs;
@@ -899,7 +899,7 @@ void loop(void)
 	}
 	/* loop3 */
 	int mul = vscale - scale - 1;
-	double h = mul > 0 ? horizv * (1<<mul) : horizv / (1<<-mul);
+	double h = mul > 0 ? horizv * (1LL<<mul) : horizv / (1LL<<-mul);
 	int res = inscr(h);
 	if (res) {
 		dsetx(895+res);
@@ -913,9 +913,8 @@ void loop(void)
 void main_loop(void)
 {
 	SDL_Event e;
-	static unsigned t0 = 0, t;
-
-	t = SDL_GetTicks();
+	static Uint64 t0 = 0;
+	Uint64 t = SDL_GetTicks();
 
 #ifdef __EMSCRIPTEN__
 	if (t - t0 < 1000/60) return;
@@ -968,7 +967,7 @@ int main(void)
 		px[i] = flt2float(px_[i]);
 		py[i] = flt2float(py_[i]);
 		pww[i] = flt2float(pww_[i]);
-		pw[i] = 1 - (pww[i] * pww[i])/2;
+		pw[i] = sqrt(1.0 - pww[i] * pww[i]);
 	}
 
 	lanflg = true;
